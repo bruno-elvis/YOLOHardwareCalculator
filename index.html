@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Estimativa: Hardware para Visão Computacional (YOLO)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Chosen Palette: Warm Neutrals & Slate with Blue Accents -->
+    <!-- Application Structure Plan: A dashboard-style layout prioritizing interactivity. 
+         Left column (or top on mobile) for user inputs (cameras, model, size, task).
+         Right column displays dynamic results: Key hardware metrics (Cards), a scaling chart, 
+         and detailed textual explanations answering the user's specific questions about scaling, 
+         model recommendations, and YOLO Pose complexity. This structure allows immediate visual 
+         feedback based on parameter changes, enhancing understanding of hardware constraints. -->
+    <!-- Visualization & Content Choices: 
+         1. Dynamic Stat Cards -> Goal: Quick overview of required VRAM, RAM, CPU, and recommended GPU.
+         2. Line Chart (Chart.js) -> Goal: Visualize the linear scaling of VRAM/Compute as cameras increase. 
+            Method: Chart.js Canvas inside a constrained Tailwind div.
+         3. Text Sections -> Goal: Provide qualitative answers to the user's questions (YOLO versions, Pose overhead).
+         CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+            color: #1e293b; /* slate-800 */
+        }
+        
+        /* Required Chart Container Styling */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        
+        /* Custom range slider styling */
+        input[type=range] {
+            accent-color: #2563eb; /* blue-600 */
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen pb-12">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900">Calculadora de Hardware YOLO</h1>
+                <p class="text-sm text-slate-500">Estimativa de recursos para vigilância RTSP em larga escala</p>
+            </div>
+            <div class="text-3xl">🤖👁️‍🗨️</div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Intro Section -->
+        <div class="mb-8 bg-blue-50 border border-blue-100 rounded-xl p-6">
+            <h2 class="text-lg font-semibold text-blue-900 mb-2">Sobre esta Ferramenta</h2>
+            <p class="text-blue-800 text-sm leading-relaxed">
+                Este dashboard interativo foi desenhado para estimar o hardware necessário para processar streams de vídeo RTSP simultâneos utilizando modelos da família YOLO (You Only Look Once). Ajuste os parâmetros no painel lateral para visualizar instantaneamente como a quantidade de câmeras, a versão do modelo e a complexidade da tarefa (Detecção vs. Pose) impactam a necessidade de VRAM, CPU e memória do sistema.
+            </p>
+        </div>
+
+        <div class="flex flex-col lg:flex-row gap-8">
+            
+            <!-- Sidebar / Controls -->
+            <aside class="w-full lg:w-1/3 space-y-6">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <h3 class="text-lg font-bold border-b border-slate-100 pb-3 mb-5">Parâmetros do Sistema</h3>
+                    
+                    <!-- Cameras -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">
+                            Câmeras Simultâneas (RTSP): <span id="camValue" class="text-blue-600 font-bold text-lg">10</span>
+                        </label>
+                        <input type="range" id="cameras" min="1" max="100" value="10" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        <div class="flex justify-between text-xs text-slate-400 mt-1">
+                            <span>1</span>
+                            <span>50</span>
+                            <span>100</span>
+                        </div>
+                    </div>
+
+                    <!-- Model Version -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Versão do YOLO</label>
+                        <select id="modelVersion" class="w-full border-slate-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 bg-slate-50 border text-sm">
+                            <option value="8">YOLOv8 (Estável, Amplamente Suportado)</option>
+                            <option value="11" selected>YOLO11 (Mais Rápido/Eficiente - Recomendado)</option>
+                            <option value="26">YOLOv26 (Conceitual / Next-Gen Pesado)</option>
+                        </select>
+                    </div>
+
+                    <!-- Model Size -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Tamanho do Modelo</label>
+                        <select id="modelSize" class="w-full border-slate-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 bg-slate-50 border text-sm">
+                            <option value="n" selected>Nano (Mais rápido, ideal para multi-cam)</option>
+                            <option value="s">Small (Equilíbrio)</option>
+                            <option value="m">Medium (Mais preciso, mais pesado)</option>
+                            <option value="l">Large (Alta Precisão, muito pesado)</option>
+                        </select>
+                    </div>
+
+                    <!-- Task Type -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Tipo de Tarefa</label>
+                        <div class="space-y-3">
+                            <label class="flex items-center p-3 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="taskType" value="detect" checked class="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 focus:ring-blue-500">
+                                <span class="ml-3 text-sm font-medium text-slate-700">Detecção de Objetos (Bounding Box)</span>
+                            </label>
+                            <label class="flex items-center p-3 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="taskType" value="pose" class="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 focus:ring-blue-500">
+                                <span class="ml-3 text-sm font-medium text-slate-700">YOLO Pose (Estimativa de Esqueleto)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <div class="w-full lg:w-2/3 space-y-6">
+                
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                        <p class="text-sm text-slate-500 font-medium mb-1">VRAM Necessária</p>
+                        <p class="text-3xl font-bold text-indigo-600" id="reqVram">0 GB</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                        <p class="text-sm text-slate-500 font-medium mb-1">Cores de CPU (Min)</p>
+                        <p class="text-3xl font-bold text-sky-600" id="reqCpu">0 Cores</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                        <p class="text-sm text-slate-500 font-medium mb-1">RAM do Sistema</p>
+                        <p class="text-3xl font-bold text-emerald-600" id="reqRam">0 GB</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                        <p class="text-sm text-slate-500 font-medium mb-1">GPU Recomendada</p>
+                        <p class="text-lg font-bold text-slate-800 leading-tight mt-1" id="recGpu">Calculando...</p>
+                    </div>
+                </div>
+
+                <!-- Chart Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Projeção de Escala (VRAM vs. Número de Câmeras)</h3>
+                    <p class="text-sm text-slate-500 mb-6">Observe como o consumo de VRAM cresce linearmente, mas sofre aumentos drásticos dependendo do peso do modelo e da tarefa.</p>
+                    <div class="chart-container">
+                        <canvas id="scalingChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Analysis Text Sections -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div class="text-2xl mb-3">📈</div>
+                        <h4 class="font-bold text-slate-800 mb-2">Relação de Escala: Câmeras vs Recursos</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            O processamento de múltiplas câmeras escala de forma quase linear na GPU. Cada stream RTSP adicional exige recursos dedicados para <strong>decodificação (NVDEC)</strong> e para a <strong>inferência (CUDA Cores/Tensor Cores)</strong>.
+                            O principal gargalo geralmente é a <strong>VRAM (Memória de Vídeo)</strong>. Para maximizar a eficiência, é altamente recomendado o uso de tecnologias como <strong>NVIDIA DeepStream</strong> ou <strong>TensorRT</strong>, que permitem processar múltiplos vídeos em lotes (batching), reduzindo drasticamente o consumo por câmera.
+                        </p>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div class="text-2xl mb-3">🧠</div>
+                        <h4 class="font-bold text-slate-800 mb-2">Qual modelo utilizar? (v8, v11, v26?)</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            <strong>O YOLO11 é a recomendação atual.</strong> Ele possui uma arquitetura otimizada que entrega maior precisão (mAP) com menos parâmetros em comparação ao YOLOv8. Para processamento simultâneo de várias câmeras, utilize as versões <strong>Nano (n)</strong> ou <strong>Small (s)</strong>.
+                            <br><br>
+                            <em>Nota:</em> "YOLO26" não é uma versão oficial atual, mas simulamos aqui como um modelo de "Próxima Geração" extremamente pesado. Modelos superdimensionados inviabilizam o processamento paralelo em tempo real sem clusters de GPU de nível data center.
+                        </p>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 md:col-span-2">
+                        <div class="text-2xl mb-3">🧍‍♂️</div>
+                        <h4 class="font-bold text-slate-800 mb-2">A Complexidade Adicional do YOLO Pose</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Utilizar o <strong>YOLO Pose</strong> adiciona uma complexidade computacional significativa em comparação à detecção padrão de caixas (Bounding Boxes). 
+                            <br><br>
+                            A estimativa de pose exige que a rede neural calcule não apenas onde a pessoa está, mas preveja <strong>17 pontos chave (keypoints)</strong> no corpo (ombros, joelhos, olhos, etc.). Isso requer camadas adicionais (uma 'cabeça' extra na rede), aumentando o número de FLOPs (operações de ponto flutuante) em aproximadamente <strong>30% a 50%</strong>. Como resultado, você precisará de mais VRAM e GPUs mais potentes (ou processar menos quadros por segundo) para manter múltiplas câmeras simultâneas.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Data and State Management
+        let chartInstance = null;
+        
+        // Base constants for VRAM estimation (in GB) for 1 camera at 30fps with TensorRT optimized
+        const BASE_VRAM = {
+            '8': 0.15,   // YOLOv8 Base (Nano)
+            '11': 0.12,  // YOLO11 is slightly more efficient per parameter
+            '26': 0.35   // Hypothetical heavy next-gen model
+        };
+
+        const SIZE_MULTIPLIER = {
+            'n': 1.0,
+            's': 1.8,
+            'm': 3.5,
+            'l': 6.0
+        };
+
+        const TASK_MULTIPLIER = {
+            'detect': 1.0,
+            'pose': 1.45 // Pose adds ~45% VRAM/Compute overhead
+        };
+
+        // DOM Elements
+        const elCameras = document.getElementById('cameras');
+        const elCamValue = document.getElementById('camValue');
+        const elModelVersion = document.getElementById('modelVersion');
+        const elModelSize = document.getElementById('modelSize');
+        const taskRadios = document.getElementsByName('taskType');
+        
+        const outVram = document.getElementById('reqVram');
+        const outCpu = document.getElementById('reqCpu');
+        const outRam = document.getElementById('reqRam');
+        const outGpu = document.getElementById('recGpu');
+
+        // Main calculation function
+        function calculateRequirements() {
+            const cams = parseInt(elCameras.value);
+            const version = elModelVersion.value;
+            const size = elModelSize.value;
+            let task = 'detect';
+            for (const radio of taskRadios) {
+                if (radio.checked) task = radio.value;
+            }
+
+            // Calculation Logic
+            const baseVramPerCam = BASE_VRAM[version] * SIZE_MULTIPLIER[size] * TASK_MULTIPLIER[task];
+            
+            // Add static OS/Framework overhead (e.g., 1.5 GB just to run CUDA/OS)
+            const overheadVram = 1.5; 
+            
+            // Total VRAM
+            const totalVram = (baseVramPerCam * cams) + overheadVram;
+            
+            // System RAM: Rule of thumb is 2x VRAM for safe buffering + OS
+            const sysRam = Math.max(16, Math.ceil(totalVram * 2));
+            
+            // CPU Cores: 2 cores OS + ~0.5 core per camera for stream handling/decoding (if not fully hardware decoded)
+            const cpuCores = Math.max(4, Math.ceil(2 + (cams * 0.4)));
+
+            // Recommend GPU based on VRAM
+            let recGpu = "";
+            if (totalVram <= 6) recGpu = "1x RTX 4060 (8GB) ou T4";
+            else if (totalVram <= 11) recGpu = "1x RTX 4070 / 3060 (12GB)";
+            else if (totalVram <= 15) recGpu = "1x RTX 4080 (16GB) ou A4000";
+            else if (totalVram <= 23) recGpu = "1x RTX 3090 / 4090 (24GB)";
+            else if (totalVram <= 46) recGpu = "2x RTX 4090 ou 1x RTX 6000 Ada (48GB)";
+            else if (totalVram <= 80) recGpu = "1x NVIDIA A100 (80GB) ou Múltiplas RTX";
+            else recGpu = `Cluster Data Center (+${Math.ceil(totalVram/24)}x GPUs 24GB)`;
+
+            // Update DOM
+            outVram.textContent = `${totalVram.toFixed(1)} GB`;
+            outCpu.textContent = `${cpuCores} Cores`;
+            outRam.textContent = `${sysRam} GB`;
+            outGpu.textContent = recGpu;
+
+            // Adjust styling based on warning levels
+            outVram.className = totalVram > 24 ? "text-3xl font-bold text-red-600" : "text-3xl font-bold text-indigo-600";
+            outGpu.className = totalVram > 48 ? "text-lg font-bold text-red-600 leading-tight mt-1" : "text-lg font-bold text-slate-800 leading-tight mt-1";
+
+            updateChart(version, size, task, totalVram, cams);
+        }
+
+        function updateChart(version, size, task, currentTotalVram, currentCams) {
+            const ctx = document.getElementById('scalingChart').getContext('2d');
+            
+            // Generate data points from 1 to 100 cameras
+            const dataPointsDetect = [];
+            const dataPointsPose = [];
+            const labels = [];
+            
+            for (let i = 10; i <= 100; i+=10) {
+                labels.push(`${i} Câmeras`);
+                
+                let vramDetect = (BASE_VRAM[version] * SIZE_MULTIPLIER[size] * TASK_MULTIPLIER['detect'] * i) + 1.5;
+                let vramPose = (BASE_VRAM[version] * SIZE_MULTIPLIER[size] * TASK_MULTIPLIER['pose'] * i) + 1.5;
+                
+                dataPointsDetect.push(vramDetect.toFixed(1));
+                dataPointsPose.push(vramPose.toFixed(1));
+            }
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'VRAM (Detecção Padrão)',
+                            data: dataPointsDetect,
+                            borderColor: '#3b82f6', // blue-500
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.1,
+                            fill: true
+                        },
+                        {
+                            label: 'VRAM (YOLO Pose)',
+                            data: dataPointsPose,
+                            borderColor: '#ef4444', // red-500
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            tension: 0.1,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { family: "'Inter', sans-serif" }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y + ' GB';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Memória de Vídeo (GB)',
+                                font: { family: "'Inter', sans-serif" }
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Volume de Streams Simultâneos',
+                                font: { family: "'Inter', sans-serif" }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Event Listeners
+        elCameras.addEventListener('input', (e) => {
+            elCamValue.textContent = e.target.value;
+            calculateRequirements();
+        });
+        elModelVersion.addEventListener('change', calculateRequirements);
+        elModelSize.addEventListener('change', calculateRequirements);
+        for (const radio of taskRadios) {
+            radio.addEventListener('change', calculateRequirements);
+        }
+
+        // Initial call
+        calculateRequirements();
+
+    </script>
+</body>
+</html>
